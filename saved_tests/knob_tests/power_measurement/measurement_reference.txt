@@ -1,0 +1,37 @@
+Power measurement reference
+===========================
+
+Sketch:
+- RAK4630LEDTEST.ino saved in this folder
+
+Purpose:
+- Current measurement mode for low-power testing
+- No timer wake
+- No pre-sleep blink
+- Button wake only
+- Intended for shunt-resistor measurement across supply path
+
+Reference measurement:
+- Date: 2026-03-20
+- Condition: J-Link disconnected
+- Shunt resistor: 100 ohm
+- Measured average shunt voltage: 2.1 mV
+- Calculated average current: 21 uA
+- Estimated average power at 3.0 V: 0.063 mW
+- Estimated average power at 3.3 V: 0.069 mW
+- Estimated CR2 runtime at 750 mAh: about 1488 days
+- Estimated CR2 runtime at 850 mAh: about 1687 days
+
+Superseded earlier measurement:
+- Date: 2026-03-20
+- Condition: J-Link still connected
+- Shunt resistor: 100 ohm
+- Measured average shunt voltage: 16.5 mV
+- Calculated average current: 165 uA
+- Status: not representative of battery-powered sleep current
+
+Notes:
+- This is whole-device sleep current, not bare nRF52840 current
+- Reading was taken with a noisy scope setup, so treat this as a first reference value
+- Button wake feedback pulse remains enabled in the sketch
+- api.system.sleep.all((uint32_t)0xFFFFFFFF) is used as effectively-indefinite sleep

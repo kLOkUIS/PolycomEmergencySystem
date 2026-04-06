@@ -1,0 +1,24 @@
+Dial PCB Pinout Reference
+
+LEDS
+- P0_24: LED_RX
+- P0_31: LED_DIAL_CTL
+
+KEY_CTL (TMUX1511 control lines)
+- P1_01: KEY1_CTL (Back-Up)
+- P1_02: KEY2_CTL (1)
+- P1_03: KEY3_CTL (Talk/End)
+- P1_04: KEY4_CTL (Vol+)
+- P0_05: KEY5_CTL (2)
+- P0_04: KEY6_CTL (3)
+
+CALL_SENSE
+- P0_25: CALL_SENSE
+
+UART
+- P0_20: UART1_TX
+- P0_19: UART1_RX
+
+Notes
+- KEY_CTL lines should default LOW at boot (no key pressed).
+- CALL_SENSE is externally pulled up; LOW means call LED active.

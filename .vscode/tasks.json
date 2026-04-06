@@ -1,0 +1,100 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Arduino: Build RAK4631",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn",
+        "rak_rui:nrf52:WisCoreRAK4631Board",
+        "--output-dir",
+        "./build",
+        "."
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Arduino: Upload J-Link",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+      ],
+      "dependsOn": [
+        "Arduino: Build RAK4631"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Upload J-Link (No Build)",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Firmware TX: Build",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn",
+        "rak_rui:nrf52:WisCoreRAK4631Board",
+        "--output-dir",
+        "./build/tx",
+        "./firmwares/tx"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Firmware TX: Upload J-Link",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/tx/tx.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+      ],
+      "dependsOn": [
+        "Firmware TX: Build"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Firmware RX: Build",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn",
+        "rak_rui:nrf52:WisCoreRAK4631Board",
+        "--output-dir",
+        "./build/rx",
+        "./firmwares/rx"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Firmware RX: Upload J-Link",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/rx/rx.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+      ],
+      "dependsOn": [
+        "Firmware RX: Build"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
