@@ -16,17 +16,17 @@ Always flash `*.ino_full.hex` for this project flow.
    - VS Code task: `Arduino: Upload J-Link`
 
 Current upload task runs:
-- `nrfjprog -f nrf52 --recover`
-- `nrfjprog -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify`
-- `nrfjprog -f nrf52 --reset`
+- `nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --recover`
+- `nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify`
+- `nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --reset`
 
 ## Manual Terminal Commands
 ```bash
 cd /Users/louis/Downloads/RAK4630LEDTEST
 arduino-cli compile --fqbn rak_rui:nrf52:WisCoreRAK4631Board --output-dir ./build .
-nrfjprog -f nrf52 --recover
-nrfjprog -f nrf52 --program ./build/RAK4630LEDTEST.ino_full.hex --chiperase --verify
-nrfjprog -f nrf52 --reset
+nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --recover
+nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --program ./build/RAK4630LEDTEST.ino_full.hex --chiperase --verify
+nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --reset
 ```
 
 ## If Flash Fails with J-Link Error -102

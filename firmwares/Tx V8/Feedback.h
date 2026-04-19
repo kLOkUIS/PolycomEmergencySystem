@@ -73,36 +73,28 @@ static const FeedbackStep FEEDBACK_PATTERN_FAILURE[] = {
 };
 
 static const FeedbackStep FEEDBACK_PATTERN_BATTERY_LOW[] = {
-	// Two slow prominent blinks — LED only, draws the eye without alarming.
-	{FeedbackTuning::BATTERY_LOW_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_LOW_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_LOW_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_LOW_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_LOW_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
 };
 
 static const FeedbackStep FEEDBACK_PATTERN_BATTERY_CRITICAL[] = {
-	// Three groups of 3 rapid LED pulses — frequent visual alarm, energy-conscious.
-	// Group 1
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_GROUP_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	// Group 2
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_GROUP_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	// Group 3
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
-	{FeedbackTuning::BATTERY_CRITICAL_PULSE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_GAP_MS, false, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_ON_MS, true, FEEDBACK_MOTOR_OFF, 0},
+	{FeedbackTuning::BATTERY_STROBE_OFF_MS, false, FEEDBACK_MOTOR_OFF, 0},
 };
 
 static inline void feedbackApplyOutputs(FeedbackController &controller, bool ledOn, FeedbackMotorMode motorMode, uint8_t motorValue) {

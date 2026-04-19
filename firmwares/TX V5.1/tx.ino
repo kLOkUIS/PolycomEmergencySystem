@@ -3,8 +3,6 @@
 #include "Protocol.h"
 #include "Feedback.h"
 
-extern "C" void service_battery_get_SysVolt_level(float *sys_lvl);
-
 static const uint32_t LED_PIN = P1_03;
 static const uint32_t BUTTON_PIN = P1_01;
 static const uint32_t MOTOR_PIN = P1_04;
@@ -18,13 +16,23 @@ static const uint16_t LORA_CR = 1;
 static const uint16_t LORA_PREAMBLE = 8;
 static const int16_t LORA_TX_POWER = 14;
 
+static const uint32_t SHORT_PRESS_MS = 100;
+static const uint32_t LONG_PRESS_MS = 3000;
 static const uint32_t SEND_DONE_TIMEOUT_MS = 3000;
 static const uint32_t ACK_TIMEOUT_MS = 3000;
 static const uint32_t CALL_TIMEOUT_MS = 4000;
 static const uint32_t RETRY_DELAY_MS = 1200;
 static const uint32_t RX_WINDOW_TIMEOUT_MARGIN_MS = 600;
 static const uint32_t ATTEMPT_HARD_TIMEOUT_MS = 14000;
+static const uint32_t WAKE_BUTTON_DEBOUNCE_MS = 20;
 static const uint8_t MAX_SOS_ATTEMPTS = 4;
+
+// Short test interval; increase to a longer production value once timer wake is verified.
+static const uint32_t BATTERY_SERVICE_INTERVAL_MS = 15000;
+static const RAK_TIMER_ID BATTERY_SERVICE_TIMER_ID = RAK_TIMER_1;
+static const uint32_t DEBUG_PULSE_ON_MS = 70;
+static const uint32_t DEBUG_PULSE_OFF_MS = 90;
+static const uint32_t DEBUG_AWAKE_TIMER_PROBE_MS = 20000;
 
 // Active-session software watchdog tuning (TX only).
 // Override at compile time with -DWD_STALL_TIMEOUT_MS=<ms> and -DWD_ABSOLUTE_TIMEOUT_MS=<ms>.
@@ -45,10 +53,8 @@ static const uint32_t RECOVERY_BOOT_COUNT_SHIFT = 8;
 static const uint32_t RECOVERY_BOOT_COUNT_MASK = (0xFFu << RECOVERY_BOOT_COUNT_SHIFT);
 
 enum TxState {
-	TX_STATE_IDLE = 0,
-	TX_STATE_PRESS_FEEDBACK,
+	TX_STATE_SLEEP = 0,
 	TX_STATE_WAIT_LONG_PRESS,
-	TX_STATE_CONFIRM_LONG_PRESS,
 	TX_STATE_SEND_CALL_TOGGLE,
 	TX_STATE_WAIT_CALL_TOGGLE_TX_DONE,
 	TX_STATE_SEND_SOS,
@@ -59,72 +65,37 @@ enum TxState {
 	TX_STATE_COMPLETE,
 	TX_STATE_COMPLETE_ACK_ONLY,
 	TX_STATE_FAILED,
+	TX_STATE_BATTERY_SERVICE,
 };
 
-enum BatteryAlertLevel : uint8_t {
-	BATTERY_ALERT_NONE = 0,
-	BATTERY_ALERT_LOW,
-	BATTERY_ALERT_CRITICAL,
-};
-
+volatile bool gButtonWakePending = false;
+volatile bool gBatteryServiceWakePending = false;
 volatile bool gTxDone = false;
 volatile bool gRxPending = false;
 volatile bool gRxTimedOut = false;
 volatile bool gRxError = false;
 
+volatile uint32_t gBatteryTimerCallbackCount = 0;
+uint32_t gBatterySleepDispatchCount = 0;
+
 uint8_t gRxBuffer[255];
 uint16_t gRxLength = 0;
 
-FeedbackController gFeedback;
-TxState gState = TX_STATE_IDLE;
+TxState gState = TX_STATE_SLEEP;
 uint32_t gStateStartedAtMs = 0;
-uint32_t gPressStartedAtMs = 0;
+uint32_t gBootedAtMs = 0;
+uint32_t gLastObservedTimerCallbackCount = 0;
+uint32_t gButtonPressedAtMs = 0;
 uint32_t gSequence = 0;
 uint8_t gAttemptCount = 0;
 uint32_t gAttemptStartedAtMs = 0;
 uint32_t gRxWindowStartedAtMs = 0;
 uint32_t gLocalRadioFaultCount = 0;
+bool gLongPressDebounced = false;
 bool gWdActive = false;
 uint32_t gWdArmedAtMs = 0;
 uint32_t gWdLastProgressMs = 0;
-TxState gWdLastState = TX_STATE_IDLE;
-BatteryAlertLevel gBatteryAlertLevel = BATTERY_ALERT_NONE;
-float gLastBatteryVoltageV = 0.0f;
-bool gBatteryServiceInitialized = false;
-bool gBatteryReminderPending = false;
-uint32_t gLastBatterySampleAtMs = 0;
-uint32_t gLastBatteryReminderAtMs = 0;
-
-static void setState(TxState newState) {
-	gState = newState;
-	gStateStartedAtMs = millis();
-
-	switch (newState) {
-	case TX_STATE_IDLE:
-		feedbackStop(gFeedback);
-		break;
-	case TX_STATE_PRESS_FEEDBACK:
-		feedbackPlayButtonTap(gFeedback);
-		break;
-	case TX_STATE_WAIT_LONG_PRESS:
-		feedbackStartLongPressWarning(gFeedback, gPressStartedAtMs, FeedbackTuning::LONG_PRESS_MS);
-		break;
-	case TX_STATE_CONFIRM_LONG_PRESS:
-		feedbackPlayLongPressConfirmed(gFeedback);
-		break;
-	case TX_STATE_COMPLETE:
-		feedbackPlayCallEstablished(gFeedback);
-		break;
-	case TX_STATE_COMPLETE_ACK_ONLY:
-		feedbackPlayAckOnly(gFeedback);
-		break;
-	case TX_STATE_FAILED:
-		feedbackPlayFailure(gFeedback);
-		break;
-	default:
-		break;
-	}
-}
+TxState gWdLastState = TX_STATE_SLEEP;
 
 static void readRecoveryState(uint32_t &flags, uint8_t &bootCount) {
 	uint32_t rawState = 0;
@@ -219,7 +190,7 @@ static void watchdogTouch() {
 }
 
 static void watchdogService() {
-	if (gState == TX_STATE_IDLE) {
+	if (gState == TX_STATE_SLEEP) {
 		watchdogDisarm();
 		gWdLastState = gState;
 		return;
@@ -248,123 +219,23 @@ static bool buttonPressedRaw() {
 	return nrf_gpio_pin_read(BUTTON_PIN) == 0;
 }
 
-static float readBatteryVoltageV() {
-	float samples[FeedbackTuning::BATTERY_SAMPLE_COUNT];
-	for (uint8_t i = 0; i < FeedbackTuning::BATTERY_SAMPLE_COUNT; i++) {
-		service_battery_get_SysVolt_level(&samples[i]);
-		if (i + 1 < FeedbackTuning::BATTERY_SAMPLE_COUNT) {
-			delay(FeedbackTuning::BATTERY_SAMPLE_SPACING_MS);
-		}
-	}
-
-	const float v0 = samples[0], v1 = samples[1], v2 = samples[2];
-	float median;
-	if (v0 <= v1) {
-		median = (v1 <= v2) ? v1 : (v0 <= v2 ? v2 : v0);
-	} else {
-		median = (v0 <= v2) ? v0 : (v1 <= v2 ? v2 : v1);
-	}
-
-	return median;
-}
-
-static BatteryAlertLevel getBatteryAlertLevel(float voltageV) {
-	if (voltageV <= FeedbackTuning::BATTERY_CRITICAL_V) {
-		return BATTERY_ALERT_CRITICAL;
-	}
-	if (voltageV <= FeedbackTuning::BATTERY_LOW_V) {
-		return BATTERY_ALERT_LOW;
-	}
-	return BATTERY_ALERT_NONE;
-}
-
-static bool batteryServiceCanRunNow() {
-	return gState == TX_STATE_IDLE && !buttonPressedRaw() && !feedbackBusy(gFeedback);
-}
-
-static uint32_t batterySampleIntervalMs(BatteryAlertLevel level) {
-	return level == BATTERY_ALERT_NONE
-		? FeedbackTuning::BATTERY_CHECK_INTERVAL_MS
-		: FeedbackTuning::BATTERY_ALERT_RECHECK_INTERVAL_MS;
-}
-
-static uint32_t batteryReminderIntervalMs(BatteryAlertLevel level) {
-	if (level == BATTERY_ALERT_CRITICAL) return FeedbackTuning::BATTERY_CRITICAL_REMINDER_INTERVAL_MS;
-	if (level == BATTERY_ALERT_LOW) return FeedbackTuning::BATTERY_ALERT_REMINDER_INTERVAL_MS;
-	return 0;
-}
-
-static bool batterySampleDue(uint32_t nowMs) {
-	if (!gBatteryServiceInitialized) {
-		return true;
-	}
-	const uint32_t intervalMs = batterySampleIntervalMs(gBatteryAlertLevel);
-	return (uint32_t)(nowMs - gLastBatterySampleAtMs) >= intervalMs;
-}
-
-static bool batteryReminderDue(uint32_t nowMs) {
-	if (gBatteryAlertLevel == BATTERY_ALERT_NONE) {
-		return false;
-	}
-	if (gBatteryReminderPending) {
-		return true;
-	}
-	const uint32_t intervalMs = batteryReminderIntervalMs(gBatteryAlertLevel);
-	if (intervalMs == 0) {
-		return false;
-	}
-	return (uint32_t)(nowMs - gLastBatteryReminderAtMs) >= intervalMs;
-}
-
-static void performBatterySample(uint32_t nowMs) {
-	delay(FeedbackTuning::BATTERY_SAMPLE_SETTLE_MS);
-	const float voltageV = readBatteryVoltageV();
-	const BatteryAlertLevel previousLevel = gBatteryAlertLevel;
-	const BatteryAlertLevel newLevel = getBatteryAlertLevel(voltageV);
-
-	gLastBatteryVoltageV = voltageV;
-	gBatteryAlertLevel = newLevel;
-	gLastBatterySampleAtMs = nowMs;
-	gBatteryServiceInitialized = true;
-
-	if (newLevel == BATTERY_ALERT_NONE) {
-		gBatteryReminderPending = false;
-		return;
-	}
-
-	if (previousLevel != newLevel) {
-		gBatteryReminderPending = true;
+static void debugPulseCount(uint8_t count) {
+	for (uint8_t i = 0; i < count; i++) {
+		digitalWrite(LED_PIN, HIGH);
+		delay(DEBUG_PULSE_ON_MS);
+		digitalWrite(LED_PIN, LOW);
+		delay(DEBUG_PULSE_OFF_MS);
 	}
 }
 
-static void playBatteryReminder(BatteryAlertLevel level) {
-	if (level == BATTERY_ALERT_CRITICAL) {
-		feedbackPlayBatteryCritical(gFeedback);
-	} else if (level == BATTERY_ALERT_LOW) {
-		feedbackPlayBatteryLow(gFeedback);
-	}
+void wakeupCallback(void) {
+	// Only latch a wake request; all debounce and press timing runs in the main loop.
+	gButtonWakePending = true;
 }
 
-static void batteryServiceUpdate(uint32_t nowMs) {
-	if (!batteryServiceCanRunNow()) {
-		return;
-	}
-
-	if (batterySampleDue(nowMs)) {
-		performBatterySample(nowMs);
-		watchdogTouch();
-	}
-
-	if (!batteryServiceCanRunNow()) {
-		return;
-	}
-
-	if (batteryReminderDue(nowMs)) {
-		playBatteryReminder(gBatteryAlertLevel);
-		gBatteryReminderPending = false;
-		gLastBatteryReminderAtMs = nowMs;
-		watchdogTouch();
-	}
+void batteryServiceTimerCallback(void *) {
+	gBatteryServiceWakePending = true;
+	gBatteryTimerCallbackCount++;
 }
 
 void sendCallback(void) {
@@ -489,9 +360,11 @@ static void markLocalRadioFault() {
 static void scheduleRetry() {
 	watchdogTouch();
 	if (gAttemptCount < MAX_SOS_ATTEMPTS) {
-		setState(TX_STATE_RETRY_DELAY);
+		gState = TX_STATE_RETRY_DELAY;
+		gStateStartedAtMs = millis();
 	} else {
-		setState(TX_STATE_FAILED);
+		gState = TX_STATE_FAILED;
+		gStateStartedAtMs = millis();
 	}
 }
 
@@ -502,7 +375,8 @@ static void handleLinkProtocolFailureRetry() {
 
 static void handleLinkProtocolFailureAckOnly() {
 	// Post-ACK link/protocol miss degrades to ACK-only completion without marking a radio fault.
-	setState(TX_STATE_COMPLETE_ACK_ONLY);
+	gState = TX_STATE_COMPLETE_ACK_ONLY;
+	gStateStartedAtMs = millis();
 }
 
 static void handleLocalRadioFaultRetry() {
@@ -517,99 +391,171 @@ static void handleLocalRadioFaultAckOnly() {
 
 static void handleLocalRadioFaultTerminal() {
 	markLocalRadioFault();
-	setState(TX_STATE_FAILED);
+	gState = TX_STATE_FAILED;
+	gStateStartedAtMs = millis();
 }
 
-static void transitionToIdleState() {
-	// Keep radio RX stopped when returning to idle; setState handles feedbackStop.
+static void transitionToSleepState() {
+	// Stop radio RX before entering TX_STATE_SLEEP. The sleep state calls sleep.all() and
+	// blocks there; radio must be idle before the MCU sleeps.
 	api.lora.precv(0);
-	setState(TX_STATE_IDLE);
+	gState = TX_STATE_SLEEP;
+	gStateStartedAtMs = millis();
+}
+
+static void enterWaitLongPressState() {
+	gLongPressDebounced = false;
+	gButtonPressedAtMs = 0;
+	gState = TX_STATE_WAIT_LONG_PRESS;
+	gStateStartedAtMs = millis();
+}
+
+static void startBatteryServiceTimer(bool &createOk, bool &startOk) {
+	createOk = api.system.timer.create(BATTERY_SERVICE_TIMER_ID, batteryServiceTimerCallback, RAK_TIMER_PERIODIC);
+	startOk = false;
+	if (createOk) {
+		startOk = api.system.timer.start(BATTERY_SERVICE_TIMER_ID, BATTERY_SERVICE_INTERVAL_MS, NULL);
+	}
 }
 
 void setup() {
 	pinMode(LED_PIN, OUTPUT);
 	pinMode(MOTOR_PIN, OUTPUT);
-	feedbackInit(gFeedback, LED_PIN, MOTOR_PIN);
 	nrf_gpio_cfg_input(BUTTON_PIN, NRF_GPIO_PIN_PULLUP);
 	maybeShowRecoveryBootStrobe();
-	feedbackStop(gFeedback);
+	feedbackIdle(LED_PIN, MOTOR_PIN);
+
+	api.system.sleep.setup(RUI_WAKEUP_FALLING_EDGE, BUTTON_PIN);
+	api.system.sleep.registerWakeupCallback(wakeupCallback);
 
 	if (!configureLoRaP2P()) {
 		markLocalRadioFault();
 		while (true) {
-			feedbackPlayFailure(gFeedback);
-			while (feedbackBusy(gFeedback)) {
-				feedbackUpdate(gFeedback, millis());
-				delay(2);
-			}
-			delay(120);
+			feedbackFailure(LED_PIN, MOTOR_PIN);
+			delay(200);
 		}
 	}
+
+	bool timerCreateOk = false;
+	bool timerStartOk = false;
+	startBatteryServiceTimer(timerCreateOk, timerStartOk);
+	// Debug stage 1: timer create/start result marker.
+	// 1 pulse = create failed, 2 pulses = start failed, 3 pulses = both OK.
+	if (!timerCreateOk) {
+		debugPulseCount(1);
+	} else if (!timerStartOk) {
+		debugPulseCount(2);
+	} else {
+		debugPulseCount(3);
+	}
+
+	gBootedAtMs = millis();
 }
 
 void loop() {
+	// Debug stage 2 probe: keep MCU awake briefly and show callback activity directly.
+	// 4 pulses means the timer callback count advanced while awake.
+	if (!elapsedAtLeast(gBootedAtMs, DEBUG_AWAKE_TIMER_PROBE_MS)) {
+		uint32_t callbackCountSnapshot = 0;
+		noInterrupts();
+		callbackCountSnapshot = gBatteryTimerCallbackCount;
+		interrupts();
+
+		if (callbackCountSnapshot != gLastObservedTimerCallbackCount) {
+			gLastObservedTimerCallbackCount = callbackCountSnapshot;
+			debugPulseCount(4);
+		}
+
+		delay(10);
+		return;
+	}
+
 	ProtocolMessage message;
-	const uint32_t nowMs = millis();
-	feedbackUpdate(gFeedback, nowMs);
 	watchdogService();
-	batteryServiceUpdate(nowMs);
 
 	switch (gState) {
-	case TX_STATE_IDLE:
-		if (buttonPressedRaw()) {
-			gPressStartedAtMs = millis();
-			setState(TX_STATE_PRESS_FEEDBACK);
-		} else {
-			delay(10);
-		}
-		break;
+	case TX_STATE_SLEEP:
+		// One single sleep point. Bounded timeout lets us distinguish true timer-flag wake
+		// from timeout wake when sleep.all() does not resume on timer callbacks.
+		// Radio RX is already stopped by transitionToSleepState() before entering this state.
+		api.system.sleep.all(BATTERY_SERVICE_INTERVAL_MS);
+		{
+			// Atomically snapshot and clear wake flags set asynchronously by callbacks.
+			bool buttonWake = false;
+			bool batteryServiceWake = false;
+			noInterrupts();
+			buttonWake = gButtonWakePending;
+			batteryServiceWake = gBatteryServiceWakePending;
+			gButtonWakePending = false;
+			gBatteryServiceWakePending = false;
+			interrupts();
 
-	case TX_STATE_PRESS_FEEDBACK:
-		if (!buttonPressedRaw()) {
-			const uint32_t pressDurationMs = millis() - gPressStartedAtMs;
-			if (pressDurationMs >= FeedbackTuning::SHORT_PRESS_MS) {
-				gSequence++;
-				setState(TX_STATE_SEND_CALL_TOGGLE);
+			// Button wake has priority over timer wake.
+			if (buttonWake) {
+				// Diagnostic marker: wake classified as button.
+				debugPulseCount(6);
+				enterWaitLongPressState();
+			} else if (batteryServiceWake) {
+				gBatterySleepDispatchCount++;
+				// Debug stage 3 marker: sleep dispatch selected battery-service by timer flag.
+				debugPulseCount(1);
+				gState = TX_STATE_BATTERY_SERVICE;
+				gStateStartedAtMs = millis();
 			} else {
-				transitionToIdleState();
+				// Deep-interaction marker: woke only by sleep timeout, not by timer callback flag.
+				debugPulseCount(5);
+				gState = TX_STATE_BATTERY_SERVICE;
+				gStateStartedAtMs = millis();
 			}
-			break;
-		}
-
-		if (!feedbackBusy(gFeedback)) {
-			setState(TX_STATE_WAIT_LONG_PRESS);
 		}
 		break;
 
 	case TX_STATE_WAIT_LONG_PRESS:
+		if (!gLongPressDebounced) {
+			if (!buttonPressedRaw()) {
+				// Diagnostic marker: button wake path selected, but no actual button press held.
+				debugPulseCount(7);
+				transitionToSleepState();
+				break;
+			}
+
+			if (!elapsedAtLeast(gStateStartedAtMs, WAKE_BUTTON_DEBOUNCE_MS)) {
+				break;
+			}
+
+			gLongPressDebounced = true;
+			gButtonPressedAtMs = millis();
+			feedbackButtonDetected(LED_PIN, MOTOR_PIN);
+		}
+
 		if (!buttonPressedRaw()) {
-			feedbackStop(gFeedback);
-			const uint32_t pressDurationMs = millis() - gPressStartedAtMs;
-			if (pressDurationMs >= FeedbackTuning::SHORT_PRESS_MS && pressDurationMs < FeedbackTuning::LONG_PRESS_MS) {
+			const uint32_t pressDurationMs = millis() - gButtonPressedAtMs;
+			if (pressDurationMs >= SHORT_PRESS_MS && pressDurationMs < LONG_PRESS_MS) {
 				gSequence++;
-				setState(TX_STATE_SEND_CALL_TOGGLE);
+				gState = TX_STATE_SEND_CALL_TOGGLE;
+				gStateStartedAtMs = millis();
 			} else {
-				transitionToIdleState();
+				transitionToSleepState();
 			}
 			break;
 		}
 
-		if (millis() - gPressStartedAtMs >= FeedbackTuning::LONG_PRESS_MS) {
+		feedbackLongPressProgress(LED_PIN, MOTOR_PIN, millis() - gButtonPressedAtMs, LONG_PRESS_MS);
+
+		if (millis() - gButtonPressedAtMs >= LONG_PRESS_MS) {
+			// Threshold reached: short dot confirmation, then start SOS.
+			feedbackLongPressConfirmed(LED_PIN, MOTOR_PIN);
 			gSequence++;
 			gAttemptCount = 0;
-			setState(TX_STATE_CONFIRM_LONG_PRESS);
-		}
-		break;
-
-	case TX_STATE_CONFIRM_LONG_PRESS:
-		if (!feedbackBusy(gFeedback)) {
-			setState(TX_STATE_SEND_SOS);
+			gState = TX_STATE_SEND_SOS;
+			gStateStartedAtMs = millis();
 		}
 		break;
 
 	case TX_STATE_SEND_CALL_TOGGLE:
 		if (sendMessage(PACKET_CALL_TOGGLE)) {
-			setState(TX_STATE_WAIT_CALL_TOGGLE_TX_DONE);
+			gState = TX_STATE_WAIT_CALL_TOGGLE_TX_DONE;
+			gStateStartedAtMs = millis();
 		} else {
 			handleLocalRadioFaultTerminal();
 		}
@@ -619,7 +565,7 @@ void loop() {
 		if (gTxDone) {
 			gTxDone = false;
 			watchdogTouch();
-			transitionToIdleState();
+			transitionToSleepState();
 		} else if (millis() - gStateStartedAtMs >= SEND_DONE_TIMEOUT_MS) {
 			// TX-done timeout with no callback is a local radio fault.
 			handleLocalRadioFaultTerminal();
@@ -630,7 +576,8 @@ void loop() {
 		gAttemptCount++;
 		gAttemptStartedAtMs = millis();
 		if (sendMessage(PACKET_SOS)) {
-			setState(TX_STATE_WAIT_TX_DONE);
+			gState = TX_STATE_WAIT_TX_DONE;
+			gStateStartedAtMs = millis();
 		} else {
 			handleLocalRadioFaultRetry();
 		}
@@ -646,7 +593,8 @@ void loop() {
 			gTxDone = false;
 			watchdogTouch();
 			if (startReceiveWindow(ACK_TIMEOUT_MS)) {
-				setState(TX_STATE_WAIT_ACK);
+				gState = TX_STATE_WAIT_ACK;
+				gStateStartedAtMs = millis();
 			} else {
 				handleLocalRadioFaultRetry();
 			}
@@ -671,13 +619,16 @@ void loop() {
 		if (takeReceivedMessage(message)) {
 			watchdogTouch();
 			if (protocolMatchesResponse(message, PACKET_ACK, TX_DEVICE_ID, gSequence)) {
+				feedbackAckReceived(LED_PIN);
 				if (startReceiveWindow(CALL_TIMEOUT_MS)) {
-					setState(TX_STATE_WAIT_CALL);
+					gState = TX_STATE_WAIT_CALL;
+					gStateStartedAtMs = millis();
 				} else {
 					handleLocalRadioFaultRetry();
 				}
 			} else if (protocolMatchesResponse(message, PACKET_CALL, TX_DEVICE_ID, gSequence)) {
-				setState(TX_STATE_COMPLETE);
+				gState = TX_STATE_COMPLETE;
+				gStateStartedAtMs = millis();
 			} else {
 				if (!startReceiveWindow(ACK_TIMEOUT_MS)) {
 					handleLocalRadioFaultRetry();
@@ -703,7 +654,8 @@ void loop() {
 		if (takeReceivedMessage(message)) {
 			watchdogTouch();
 			if (protocolMatchesResponse(message, PACKET_CALL, TX_DEVICE_ID, gSequence)) {
-				setState(TX_STATE_COMPLETE);
+				gState = TX_STATE_COMPLETE;
+				gStateStartedAtMs = millis();
 			} else {
 				// Failing to re-open RX after an unexpected message is a local radio fault;
 				// degrade to ACK-only rather than re-running the full SOS cycle.
@@ -718,26 +670,37 @@ void loop() {
 
 	case TX_STATE_RETRY_DELAY:
 		if (millis() - gStateStartedAtMs >= RETRY_DELAY_MS) {
-			setState(TX_STATE_SEND_SOS);
+			gState = TX_STATE_SEND_SOS;
+			gStateStartedAtMs = millis();
 		}
 		break;
 
 	case TX_STATE_COMPLETE:
-		if (!feedbackBusy(gFeedback)) {
-			transitionToIdleState();
-		}
+		feedbackCallEstablished(LED_PIN, MOTOR_PIN);
+		transitionToSleepState();
 		break;
 
 	case TX_STATE_COMPLETE_ACK_ONLY:
-		if (!feedbackBusy(gFeedback)) {
-			transitionToIdleState();
-		}
+		feedbackAckOnly(LED_PIN, MOTOR_PIN);
+		transitionToSleepState();
 		break;
 
 	case TX_STATE_FAILED:
-		if (!feedbackBusy(gFeedback)) {
-			transitionToIdleState();
-		}
+		feedbackFailure(LED_PIN, MOTOR_PIN);
+		transitionToSleepState();
+		break;
+
+	case TX_STATE_BATTERY_SERVICE:
+		// Debug stage 2/3 proof: callback woke system and dispatch reached this state.
+		// 2-pulse pattern is intentionally distinct from other debug markers.
+		digitalWrite(LED_PIN, HIGH);
+		delay(80);
+		digitalWrite(LED_PIN, LOW);
+		delay(80);
+		digitalWrite(LED_PIN, HIGH);
+		delay(80);
+		digitalWrite(LED_PIN, LOW);
+		transitionToSleepState();
 		break;
 	}
 }

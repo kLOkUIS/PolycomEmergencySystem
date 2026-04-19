@@ -11,11 +11,25 @@ static const uint32_t MOTOR_PIN = P1_04;
 #define TEST_MODE_LPM 1
 #endif
 
+#ifndef TEST_TIMER_ENABLED
+#define TEST_TIMER_ENABLED 1
+#endif
+
+#ifndef TEST_TIMER_WAKE_PERIOD_MS
+#define TEST_TIMER_WAKE_PERIOD_MS 30000
+#endif
+
 volatile bool gButtonWakePending = false;
+volatile bool gTimerWakePending = false;
 volatile uint32_t gButtonWakeCount = 0;
+volatile uint32_t gTimerWakeCount = 0;
 
 void wakeupCallback(void) {
   gButtonWakePending = true;
+}
+
+void timerCallback(void *) {
+  gTimerWakePending = true;
 }
 
 void setup() {
@@ -30,6 +44,11 @@ void setup() {
 
   api.system.sleep.setup(RUI_WAKEUP_FALLING_EDGE, BUTTON_PIN);
   (void)api.system.sleep.registerWakeupCallback(wakeupCallback);
+
+#if TEST_TIMER_ENABLED
+  api.system.timer.create(RAK_TIMER_0, timerCallback, RAK_TIMER_PERIODIC);
+  api.system.timer.start(RAK_TIMER_0, TEST_TIMER_WAKE_PERIOD_MS, NULL);
+#endif
 }
 
 void loop() {
@@ -37,8 +56,19 @@ void loop() {
   digitalWrite(MOTOR_PIN, LOW);
   api.system.sleep.all((uint32_t)0xFFFFFFFF);
 
-  noInterrupts();
-  gButtonWakePending = false;
-  gButtonWakeCount++;
-  interrupts();
+  if (gButtonWakePending) {
+    noInterrupts();
+    gButtonWakePending = false;
+    gButtonWakeCount++;
+    interrupts();
+  }
+
+#if TEST_TIMER_ENABLED
+  if (gTimerWakePending) {
+    noInterrupts();
+    gTimerWakePending = false;
+    gTimerWakeCount++;
+    interrupts();
+  }
+#endif
 }

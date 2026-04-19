@@ -1,0 +1,33 @@
+Power measurement notes (2026-04-13)
+===================================
+
+Context
+- Goal: isolate sleep behavior before reintegrating with knob firmware.
+- Board/software flashed: RAK4630LEDTEST.ino at repo root (timer + button wake test variant).
+
+New measurements reported
+- Shunt resistor: 10 ohm
+- Scope reading while asleep (average): about 2.5 mV
+- Equivalent current (Ohm's law): about 250 uA
+
+Probe/scope attenuation observation
+- With 10x probe/scope setup: about 2.5 mV observed
+- With 1x setting: about 4 mV observed
+- Suspicion: probe attenuation and scope channel attenuation may not have matched in one run.
+
+Comparison to earlier reference
+- Earlier reference used 100 ohm shunt and about 2.1 mV average (about 21 uA)
+- Apparent current difference vs new 10 ohm run is about 10x to 20x, likely influenced by setup/method differences.
+
+Recommended check before comparing runs
+- Verify probe and scope channel attenuation match (both 1x or both 10x).
+- Keep identical scope averaging/timebase and wiring between A/B runs.
+- Keep J-Link disconnected during low-power measurements.
+
+Additional run (2026-04-13)
+- Test sketch: sleep_all_no_lpm_button_timer_wake_test.ino
+- Test intent: sleep.all only (no lpm.set), button wake + timer wake enabled
+- Shunt resistor: 100 ohm
+- Probe/scope attenuation: both set to 10x
+- Scope readout across shunt: 47.5 mV
+- Calculated current (I = V / R): 475 uA

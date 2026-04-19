@@ -25,7 +25,7 @@
       "command": "zsh",
       "args": [
         "-lc",
-        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+        "nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --recover && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --reset"
       ],
       "dependsOn": [
         "Arduino: Build RAK4631"
@@ -38,7 +38,7 @@
       "command": "zsh",
       "args": [
         "-lc",
-        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+        "nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --recover && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --program ${workspaceFolder}/build/RAK4630LEDTEST.ino_full.hex --chiperase --verify && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --reset"
       ],
       "problemMatcher": []
     },
@@ -62,7 +62,7 @@
       "command": "zsh",
       "args": [
         "-lc",
-        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/tx/tx.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+        "nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --recover && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --program ${workspaceFolder}/build/tx/tx.ino_full.hex --chiperase --verify && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --reset"
       ],
       "dependsOn": [
         "Firmware TX: Build"
@@ -89,10 +89,37 @@
       "command": "zsh",
       "args": [
         "-lc",
-        "nrfjprog -f nrf52 --recover && nrfjprog -f nrf52 --program ${workspaceFolder}/build/rx/rx.ino_full.hex --chiperase --verify && nrfjprog -f nrf52 --reset"
+        "nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --recover && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --program ${workspaceFolder}/build/rx/rx.ino_full.hex --chiperase --verify && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --reset"
       ],
       "dependsOn": [
         "Firmware RX: Build"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Sleep Test: Build",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn",
+        "rak_rui:nrf52:WisCoreRAK4631Board",
+        "--output-dir",
+        "./build/sleep_test",
+        "./Sleep design/sleep_test"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Sleep Test: Upload J-Link",
+      "type": "shell",
+      "command": "zsh",
+      "args": [
+        "-lc",
+        "nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --recover && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --program ${workspaceFolder}/build/sleep_test/sleep_test.ino_full.hex --chiperase --verify && nrfjprog --jdll /Applications/SEGGER/JLink_V794e/libjlinkarm.dylib -f nrf52 --reset"
+      ],
+      "dependsOn": [
+        "Sleep Test: Build"
       ],
       "problemMatcher": []
     }

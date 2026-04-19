@@ -116,6 +116,54 @@ LoRa: 868 MHz, SF7, BW125, CR4/5, preamble 8, +14 dBm — unchanged across all v
 
 ---
 
-## Active (tx/) — Same as Tx V7
+## Tx V8 — Non-blocking feedback overhaul; always-awake idle; battery state service
+
+### Sleep logic removed (clean awake baseline)
+- All sleep/wake logic removed: `api.system.sleep.all()`, `api.system.sleep.setup()`, `registerWakeupCallback()`, `wakeupCallback`, `batteryServiceTimerCallback`, `startBatteryServiceTimer`, `RAK_TIMER_*` APIs
+- `TX_STATE_SLEEP` renamed to `TX_STATE_IDLE`; idle is now a lightweight polling loop with `delay(10)` between button checks
+- `TX_STATE_BATTERY_SERVICE` enum value and its switch case removed
+- `setLowPowerEnabled()` and all calls to it removed; LPM is not used in awake firmware
+- `gButtonWakePending`, `gBatteryServiceWakePending`, `gBatteryTimerCallbackCount`, `gBatterySleepDispatchCount`, `gLastObservedTimerCallbackCount` removed
+- Debug wake-source stage-probe pulse calls removed
+- `transitionToSleepState()` renamed to `transitionToIdleState()`; all call sites updated
+
+### Non-blocking FeedbackController (from V6 architecture, applied here)
+- `FeedbackController gFeedback` singleton replaces all free-function feedback calls taking pin arguments
+- New `FeedbackTuning.h` namespace consolidates all timing and PWM constants (`SHORT_PRESS_MS`, `LONG_PRESS_TOTAL_MS`, `LONG_PRESS_MS`, warning ramp constants, cue durations)
+- `feedbackInit()` / `feedbackStop()` / `feedbackUpdate()` / `feedbackBusy()` / `feedbackPlayPattern()` API
+- `feedbackUpdate(gFeedback, millis())` called as the first statement every `loop()` tick
+- All blocking feedback helpers removed: `feedbackIdle`, `feedbackButtonDetected`, `feedbackLongPressProgress`, `feedbackLongPressConfirmed`, `feedbackAckReceived`, `feedbackCallEstablished`, `feedbackAckOnly`, `feedbackFailure`, `motorRamp`
+- `setState(TxState)` helper introduced: atomically sets `gState + gStateStartedAtMs` and dispatches feedback side-effects per state
+- **Two new interaction states**:
+  - `TX_STATE_PRESS_FEEDBACK`: entered on button-down, plays tap cue, waits for tap to finish before entering `WAIT_LONG_PRESS`
+  - `TX_STATE_CONFIRM_LONG_PRESS`: entered after long-press threshold, plays confirmation haptic, waits for it to finish before sending SOS
+- `COMPLETE` / `COMPLETE_ACK_ONLY` / `FAILED`: no longer call blocking feedback + immediate idle; each waits for `!feedbackBusy(gFeedback)` then calls `transitionToIdleState()`
+- `gButtonPressedAtMs` renamed to `gPressStartedAtMs`; `gLongPressDebounced` removed
+
+### Recovery system — 5-boot countdown restored (reverts V6 RESETREAS change)
+- `readRecoveryState()` / `writeRecoveryState()` functions with packed 32-bit flash word (flags in low byte, boot count in bits [15:8])
+- `RECOVERY_BOOT_COUNT_RESET_VALUE = 5`; marker auto-clears after 5 power cycles
+- `RECOVERY_FLAG_SOFT_RECOVERY` (bit 0) retained alongside `RECOVERY_FLAG_REBOOT_RECOVERY` (bit 1)
+- `maybeShowRecoveryBootStrobe()` shows 3 × 45 ms blinks on reboot recovery
+
+### Battery state service (new in V8; no sleep coupling)
+- `extern "C" void service_battery_get_SysVolt_level(float *)` ADC read via RUI3 system service (same path as V7)
+- `readBatteryVoltageV()`: median-of-3 samples with 2 ms spacing and 5 ms settle delay before reading
+- `BatteryAlertLevel` enum: `BATTERY_ALERT_NONE` / `BATTERY_ALERT_LOW` / `BATTERY_ALERT_CRITICAL`
+- Thresholds: Low ≤ 2.80 V, Critical ≤ 2.75 V (higher than V7's 2.75/2.70 thresholds)
+- **Two independent schedules in software** — no sleep timer required:
+  - Voltage sample: every 24 h in normal state; every 60 min while Low or Critical
+  - Reminder playback: every 60 s while Low or Critical
+- Boot behaviour: first sample taken immediately on first safe idle window after boot, then on the 24-hour schedule
+- On level change (including first detection): `gBatteryReminderPending = true` → immediate reminder on next idle opportunity
+- On recovery to `BATTERY_ALERT_NONE`: reminder scheduling cleared, sample cadence returns to 24 h
+- `batteryServiceUpdate(nowMs)` called each `loop()` tick after `watchdogService()`, before main `switch(gState)`
+- **Safe-window gating**: sample and reminder only run when `gState == TX_STATE_IDLE`, button not pressed, and `!feedbackBusy(gFeedback)` — battery service never interrupts protocol flow or active feedback
+- Battery alert feedback is **LED-only** (no motor): Low = 2 short flashes (28 ms on / 12 ms off / 90 ms gap), Critical = 5 short flashes same timing; both non-blocking through `FeedbackController`
+- All battery tuning constants in `FeedbackTuning` namespace: `BATTERY_LOW_V`, `BATTERY_CRITICAL_V`, `BATTERY_CHECK_INTERVAL_MS`, `BATTERY_ALERT_REMINDER_INTERVAL_MS`, `BATTERY_ALERT_RECHECK_INTERVAL_MS`, `BATTERY_SAMPLE_COUNT`, `BATTERY_SAMPLE_SPACING_MS`, `BATTERY_SAMPLE_SETTLE_MS`, strobe timing/counts
+
+---
+
+## Active (tx/) — Same as Tx V8
 
 The active `firmwares/tx/tx.ino` is an exact copy of Tx V7.

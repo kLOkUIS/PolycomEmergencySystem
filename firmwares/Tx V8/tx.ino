@@ -289,9 +289,7 @@ static uint32_t batterySampleIntervalMs(BatteryAlertLevel level) {
 }
 
 static uint32_t batteryReminderIntervalMs(BatteryAlertLevel level) {
-	if (level == BATTERY_ALERT_CRITICAL) return FeedbackTuning::BATTERY_CRITICAL_REMINDER_INTERVAL_MS;
-	if (level == BATTERY_ALERT_LOW) return FeedbackTuning::BATTERY_ALERT_REMINDER_INTERVAL_MS;
-	return 0;
+	return level == BATTERY_ALERT_NONE ? 0 : FeedbackTuning::BATTERY_ALERT_REMINDER_INTERVAL_MS;
 }
 
 static bool batterySampleDue(uint32_t nowMs) {
