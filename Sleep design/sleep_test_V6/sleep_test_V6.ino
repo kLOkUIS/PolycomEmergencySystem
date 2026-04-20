@@ -12,7 +12,7 @@ static const uint32_t MOTOR_PIN  = P1_04;
 #endif
 
 #ifndef TEST_BUTTON_WAKE_ENABLED
-#define TEST_BUTTON_WAKE_ENABLED 0
+#define TEST_BUTTON_WAKE_ENABLED 1
 #endif
 
 // TX diagnostic mode (selected at compile time):
@@ -25,7 +25,7 @@ static const uint32_t MOTOR_PIN  = P1_04;
 // 6 = send one packet, wait for callback, settle longer, then precv(0)
 // 7 = send one packet, wait for callback, settle longer, precv(0), delay, Radio.Sleep()
 #ifndef TEST_TX_DIAG_MODE
-#define TEST_TX_DIAG_MODE 0
+#define TEST_TX_DIAG_MODE 2
 #endif
 
 #ifndef TEST_LORA_SHUTDOWN_DELAY_MS
@@ -76,10 +76,8 @@ enum TxDiagMode {
 };
 
 void buttonWakeupCallback(void) {
-#if TEST_BUTTON_WAKE_ENABLED
   gButtonWakePending = true;
   gButtonWakeCount++;
-#endif
 }
 
 void sendCallback(void) {
@@ -182,13 +180,15 @@ void setup() {
   api.system.lpm.set(1);
 #endif
 
+#if TEST_BUTTON_WAKE_ENABLED
   api.system.sleep.setup(RUI_WAKEUP_FALLING_EDGE, BUTTON_PIN);
   (void)api.system.sleep.registerWakeupCallback(buttonWakeupCallback);
+#endif
 
   gDiagAttemptCount++;
   gDiagRan = startTxDiagStep();
 }
 
 void loop() {
-  api.system.sleep.all();
+  api.system.sleep.all((uint32_t)0xFFFFFFFF);
 }

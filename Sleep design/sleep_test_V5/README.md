@@ -24,7 +24,7 @@ Archive the transmit-boundary sleep investigation after V4, focused on what happ
 | 3 | `psend()` then wait TX callback then sleep | 400 |
 | 4 | Mode 3 + settle 100 ms | 400 |
 | 5 | Mode 3 + settle 5000 ms | 400 (after ~5 s around ~4 mA) |
-| 6 | Mode 5 + `precv(0)` | not recorded in this snapshot |
+| 6 | Mode 5 + `precv(0)` | 400 |
 | 7 | Mode 5 + `precv(0)` + delay + `Radio.Sleep()` | 400 |
 
 ## Findings
