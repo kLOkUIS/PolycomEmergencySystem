@@ -12,7 +12,7 @@ static const uint32_t MOTOR_PIN  = P1_04;
 #endif
 
 #ifndef TEST_BUTTON_WAKE_ENABLED
-#define TEST_BUTTON_WAKE_ENABLED 0
+#define TEST_BUTTON_WAKE_ENABLED 1
 #endif
 
 // TX diagnostic mode (selected at compile time):
@@ -20,28 +20,12 @@ static const uint32_t MOTOR_PIN  = P1_04;
 // 1 = configure LoRa only, no send
 // 2 = send one packet, then return to sleep immediately
 // 3 = send one packet, handle send callback event, then sleep
-// 4 = send one packet, handle callback event, then settle briefly
-// 5 = send one packet, handle callback event, then settle longer
-// 6 = send one packet, wait for callback, settle longer, then precv(0)
-// 7 = send one packet, wait for callback, settle longer, precv(0), delay, Radio.Sleep()
 #ifndef TEST_TX_DIAG_MODE
-#define TEST_TX_DIAG_MODE 0
-#endif
-
-#ifndef TEST_LORA_SHUTDOWN_DELAY_MS
-#define TEST_LORA_SHUTDOWN_DELAY_MS 10
+#define TEST_TX_DIAG_MODE 2
 #endif
 
 #ifndef TEST_TX_DONE_TIMEOUT_MS
 #define TEST_TX_DONE_TIMEOUT_MS 3000
-#endif
-
-#ifndef TEST_TX_SETTLE_SHORT_MS
-#define TEST_TX_SETTLE_SHORT_MS 100
-#endif
-
-#ifndef TEST_TX_SETTLE_LONG_MS
-#define TEST_TX_SETTLE_LONG_MS 5000
 #endif
 
 static const uint32_t LORA_FREQ_HZ  = 868000000;
@@ -69,52 +53,16 @@ enum TxDiagMode {
   TX_DIAG_INIT_ONLY = 1,
   TX_DIAG_SEND_IMMEDIATE_SLEEP = 2,
   TX_DIAG_SEND_WAIT_DONE = 3,
-  TX_DIAG_SEND_WAIT_DONE_SETTLE_SHORT = 4,
-  TX_DIAG_SEND_WAIT_DONE_SETTLE_LONG = 5,
-  TX_DIAG_SEND_WAIT_DONE_SETTLE_LONG_PRECV = 6,
-  TX_DIAG_SEND_WAIT_DONE_SETTLE_LONG_PRECV_SLEEP = 7,
 };
 
 void buttonWakeupCallback(void) {
-#if TEST_BUTTON_WAKE_ENABLED
   gButtonWakePending = true;
   gButtonWakeCount++;
-#endif
 }
 
 void sendCallback(void) {
   gTxDone = true;
   gTxDoneCount++;
-
-  const uint32_t mode = (uint32_t)TEST_TX_DIAG_MODE;
-
-  if (mode == TX_DIAG_SEND_WAIT_DONE) {
-    return;
-  }
-
-  if (mode == TX_DIAG_SEND_WAIT_DONE_SETTLE_SHORT) {
-    delay(TEST_TX_SETTLE_SHORT_MS);
-    return;
-  }
-
-  if (mode == TX_DIAG_SEND_WAIT_DONE_SETTLE_LONG) {
-    delay(TEST_TX_SETTLE_LONG_MS);
-    return;
-  }
-
-  if (mode == TX_DIAG_SEND_WAIT_DONE_SETTLE_LONG_PRECV) {
-    delay(TEST_TX_SETTLE_LONG_MS);
-    api.lora.precv(0);
-    return;
-  }
-
-  if (mode == TX_DIAG_SEND_WAIT_DONE_SETTLE_LONG_PRECV_SLEEP) {
-    delay(TEST_TX_SETTLE_LONG_MS);
-    api.lora.precv(0);
-    delay(TEST_LORA_SHUTDOWN_DELAY_MS);
-    Radio.Sleep();
-    return;
-  }
 }
 
 static bool configureLoRaP2P(void) {
@@ -182,13 +130,15 @@ void setup() {
   api.system.lpm.set(1);
 #endif
 
+#if TEST_BUTTON_WAKE_ENABLED
   api.system.sleep.setup(RUI_WAKEUP_FALLING_EDGE, BUTTON_PIN);
   (void)api.system.sleep.registerWakeupCallback(buttonWakeupCallback);
+#endif
 
   gDiagAttemptCount++;
   gDiagRan = startTxDiagStep();
 }
 
 void loop() {
-  api.system.sleep.all();
+  api.system.sleep.all((uint32_t)0xFFFFFFFF);
 }
